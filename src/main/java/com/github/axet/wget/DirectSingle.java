@@ -18,11 +18,9 @@ public class DirectSingle extends Direct {
      * 
      * @param info
      *            download file information
-     * @param target
-     *            target file
      */
-    public DirectSingle(DownloadInfo info, File target) {
-        super(info, target);
+    public DirectSingle(DownloadInfo info) {
+        super(info, info.getTargetFile());
     }
 
     /**

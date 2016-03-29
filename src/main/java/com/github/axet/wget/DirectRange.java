@@ -16,8 +16,8 @@ import com.github.axet.wget.info.ex.DownloadInterruptedError;
 
 public class DirectRange extends Direct {
 
-    public DirectRange(DownloadInfo info, File target) {
-        super(info, target);
+    public DirectRange(DownloadInfo info) {
+        super(info, info.getTargetFile());
     }
 
     public void downloadPart(DownloadInfo info, AtomicBoolean stop, Runnable notify) throws IOException {

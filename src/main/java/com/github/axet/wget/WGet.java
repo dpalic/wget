@@ -15,6 +15,7 @@ import java.util.regex.Pattern;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.FilenameUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import com.github.axet.wget.info.DownloadInfo;
 import com.github.axet.wget.info.ex.DownloadError;
@@ -22,249 +23,268 @@ import com.github.axet.wget.info.ex.DownloadInterruptedError;
 
 public class WGet {
 
-    private DownloadInfo info;
+	private DownloadInfo info;
 
-    Direct d;
+	Direct d;
 
-    File targetFile;
+	// File targetFile;
 
-    public interface HtmlLoader {
-        /**
-         * some socket problem, retyring
-         * 
-         * @param delay
-         * @param e
-         */
-        public void notifyRetry(int delay, Throwable e);
+	public interface HtmlLoader {
+		/**
+		 * some socket problem, retyring
+		 * 
+		 * @param delay
+		 * @param e
+		 */
+		public void notifyRetry(int delay, Throwable e);
 
-        /**
-         * start downloading
-         */
-        public void notifyDownloading();
+		/**
+		 * start downloading
+		 */
+		public void notifyDownloading();
 
-        /**
-         * document moved, relocating
-         */
-        public void notifyMoved();
-    }
+		/**
+		 * document moved, relocating
+		 */
+		public void notifyMoved();
+	}
 
-    /**
-     * download with events control.
-     * 
-     * @param source
-     * @param target
-     */
-    public WGet(URL source, File target) {
-        create(source, target);
-    }
+	/**
+	 * download with events control.
+	 * 
+	 * @param source
+	 * @param target
+	 * @deprecated use {@link WGet#WGet(DownloadInfo)} instead
+	 */
+	@Deprecated
+	public WGet(URL source, File target) {
+		create(source, target);
+	}
 
-    /**
-     * application controlled download / resume. you should specify targetfile
-     * name exactly. since you are choice resume / multipart download.
-     * application unable to control file name choice / creation.
+	/**
+     * application controlled download / resume.
      * 
      * @param info
      *            download info
      * @param targetFile
      *            target files
      */
-    public WGet(DownloadInfo info, File targetFile) {
+    public WGet(DownloadInfo info) {
         this.info = info;
-        this.targetFile = targetFile;
-        create();
+        
+        create(info);
     }
 
-    void create(URL source, File target) {
-        info = new DownloadInfo(source);
-        info.extract();
-        create(target);
-    }
+	/**
+	 * application controlled download / resume. you should specify targetfile
+	 * name exactly. since you are choice resume / multipart download.
+	 * application unable to control file name choice / creation.
+	 * 
+	 * @param info
+	 *            download info
+	 * @param pTargetFile
+	 *            target files
+	 * @deprecated use {@link WGet#WGet(DownloadInfo)} instead
+	 */
+	@Deprecated
+	public WGet(DownloadInfo info, File pTargetFile) {
+		this.info = info;
+		File targetFile = pTargetFile;
+		create();
+	}
 
-    void create(File target) {
-        targetFile = calcName(info, target);
-        create();
-    }
+	void create(URL source, File target) {
+		info = new DownloadInfo(source);
+		info.extract();
+		create(info);
+	}
 
-    void create() {
-        d = createDirect();
-    }
+	void create(DownloadInfo info) {
+		File targetFile = calcName(info);
+		create();
+	}
 
-    Direct createDirect() {
-        if (info.multipart()) {
-            return new DirectMultipart(info, targetFile);
-        } else if (info.getRange()) {
-            return new DirectRange(info, targetFile);
-        } else {
-            return new DirectSingle(info, targetFile);
-        }
-    }
+	void create() {
+		d = createDirect();
+	}
 
-    public static File calcName(URL source, File target) {
-        DownloadInfo info = new DownloadInfo(source);
-        info.extract();
+	Direct createDirect() {
+		if (info.multipart()) {
+			return new DirectMultipart(info);
+		} else if (info.getRange()) {
+			return new DirectRange(info);
+		} else {
+			return new DirectSingle(info);
+		}
+	}
 
-        return calcName(info, target);
-    }
+	public static File calcName(URL source, File target) {
+		DownloadInfo info = new DownloadInfo(source);
+		info.extract();
 
-    public static File calcName(DownloadInfo info, File target) {
-        // target -
-        // 1) can point to directory.
-        // - generate exclusive (1) name.
-        // 2) to exisiting file
-        // 3) to non existing file
+		return calcName(info);
+	}
 
-        String name = null;
+	public static File calcName(DownloadInfo info) {
+		// target -
+		// 1) can point to directory.
+		// - generate exclusive (1) name.
+		// 2) to exisiting file
+		// 3) to non existing file
 
-        name = info.getContentFilename();
+		String name = null;
 
-        if (name == null)
-            name = new File(info.getSource().getPath()).getName();
+		name = info.getContentFilename();
 
-        try {
-            name = URLDecoder.decode(name, "UTF-8");
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+		if (name == null)
+			name = new File(info.getSource().getPath()).getName();
 
-        String nameNoExt = FilenameUtils.removeExtension(name);
-        String ext = FilenameUtils.getExtension(name);
+		try {
+			name = URLDecoder.decode(name, "UTF-8");
+		} catch (Exception e) {
+			throw new RuntimeException(e);
+		}
 
-        File targetFile = null;
+		String nameNoExt = FilenameUtils.removeExtension(name);
+		String ext = FilenameUtils.getExtension(name);
 
-        if (target.isDirectory()) {
-            targetFile = FileUtils.getFile(target, name);
-            int i = 1;
-            while (targetFile.exists()) {
-                targetFile = FileUtils.getFile(target, nameNoExt + " (" + i + ")." + ext);
-                i++;
-            }
-        } else {
-            try {
-                FileUtils.forceMkdir(new File(target.getParent()));
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
+		File targetFile = null;
 
-            targetFile = target;
-        }
+		if (info.getTargetFolder().isDirectory()) {
+			targetFile = FileUtils.getFile(info.getTargetFolder(), name);
+			int i = 1;
+			while (targetFile.exists()) {
+				targetFile = FileUtils.getFile(info.getTargetFolder(), nameNoExt + " (" + i + ")." + ext);
+				i++;
+			}
+			info.setTargetFile(targetFile);
+		} else {
+			try {
+				FileUtils.forceMkdir(new File(info.getTargetFile().getParent()));
+			} catch (IOException e) {
+				throw new RuntimeException(e);
+			}
 
-        return targetFile;
-    }
+			targetFile = info.getTargetFile();
+		}
 
-    public void download() {
-        download(new AtomicBoolean(false), new Runnable() {
-            @Override
-            public void run() {
-            }
-        });
-    }
+		return targetFile;
+	}
 
-    public void download(AtomicBoolean stop, Runnable notify) {
-        d.download(stop, notify);
-    }
+	public void download() {
+		download(new AtomicBoolean(false), new Runnable() {
+			@Override
+			public void run() {
+			}
+		});
+	}
 
-    public DownloadInfo getInfo() {
-        return info;
-    }
+	public void download(AtomicBoolean stop, Runnable notify) {
+		d.download(stop, notify);
+	}
 
-    public static String getHtml(URL source) {
-        return getHtml(source, new HtmlLoader() {
-            @Override
-            public void notifyRetry(int delay, Throwable e) {
-            }
+	public DownloadInfo getInfo() {
+		return info;
+	}
 
-            @Override
-            public void notifyDownloading() {
-            }
+	public static String getHtml(URL source) {
+		return getHtml(source, new HtmlLoader() {
+			@Override
+			public void notifyRetry(int delay, Throwable e) {
+			}
 
-            @Override
-            public void notifyMoved() {
-            }
-        }, new AtomicBoolean(false));
-    }
+			@Override
+			public void notifyDownloading() {
+			}
 
-    public static String getHtml(DownloadInfo info) {
-        return getHtml(info, new HtmlLoader() {
-            @Override
-            public void notifyRetry(int delay, Throwable e) {
-            }
+			@Override
+			public void notifyMoved() {
+			}
+		}, new AtomicBoolean(false));
+	}
 
-            @Override
-            public void notifyDownloading() {
-            }
+	public static String getHtml(DownloadInfo info) {
+		return getHtml(info, new HtmlLoader() {
+			@Override
+			public void notifyRetry(int delay, Throwable e) {
+			}
 
-            @Override
-            public void notifyMoved() {
-            }
-        }, new AtomicBoolean(false));
-    }
+			@Override
+			public void notifyDownloading() {
+			}
 
-    public static String getHtml(final URL source, final HtmlLoader load, final AtomicBoolean stop) {
-        return getHtml(new DownloadInfo(source), load, stop);
-    }
+			@Override
+			public void notifyMoved() {
+			}
+		}, new AtomicBoolean(false));
+	}
 
-    public static String getHtml(final DownloadInfo source, final HtmlLoader load, final AtomicBoolean stop) {
-        String html = RetryWrap.wrap(stop, new RetryWrap.WrapReturn<String>() {
-            DownloadInfo info = source;
+	public static String getHtml(final URL source, final HtmlLoader load, final AtomicBoolean stop) {
+		return getHtml(new DownloadInfo(source), load, stop);
+	}
 
-            @Override
-            public void proxy() {
-                info.getProxy().set();
-            }
+	public static String getHtml(final DownloadInfo source, final HtmlLoader load, final AtomicBoolean stop) {
+		String html = RetryWrap.wrap(stop, new RetryWrap.WrapReturn<String>() {
+			DownloadInfo info = source;
 
-            @Override
-            public void retry(int delay, Throwable e) {
-                load.notifyRetry(delay, e);
-            }
+			@Override
+			public void proxy() {
+				info.getProxy().set();
+			}
 
-            @Override
-            public String download() throws IOException {
-                HttpURLConnection conn = info.openConnection();
+			@Override
+			public void retry(int delay, Throwable e) {
+				load.notifyRetry(delay, e);
+			}
 
-                RetryWrap.check(conn);
+			@Override
+			public String download() throws IOException {
+				HttpURLConnection conn = info.openConnection();
 
-                InputStream is = conn.getInputStream();
+				RetryWrap.check(conn);
 
-                String enc = conn.getContentEncoding();
+				InputStream is = conn.getInputStream();
 
-                if (enc == null) {
-                    Pattern p = Pattern.compile("charset=(.*)");
-                    Matcher m = p.matcher(conn.getHeaderField("Content-Type"));
-                    if (m.find()) {
-                        enc = m.group(1);
-                    }
-                }
+				String enc = conn.getContentEncoding();
 
-                if (enc == null)
-                    enc = "UTF-8";
+				if (enc == null) {
+					Pattern p = Pattern.compile("charset=(.*)");
+					Matcher m = p.matcher(conn.getHeaderField("Content-Type"));
+					if (m.find()) {
+						enc = m.group(1);
+					}
+				}
 
-                BufferedReader br = new BufferedReader(new InputStreamReader(is, enc));
+				if (enc == null)
+					enc = "UTF-8";
 
-                String line = null;
+				BufferedReader br = new BufferedReader(new InputStreamReader(is, enc));
 
-                StringBuilder contents = new StringBuilder();
-                while ((line = br.readLine()) != null) {
-                    contents.append(line);
-                    contents.append("\n");
+				String line = null;
 
-                    if (stop.get())
-                        throw new DownloadInterruptedError("stop");
-                }
+				StringBuilder contents = new StringBuilder();
+				while ((line = br.readLine()) != null) {
+					contents.append(line);
+					contents.append("\n");
 
-                return contents.toString();
-            }
+					if (stop.get())
+						throw new DownloadInterruptedError("stop");
+				}
 
-            @Override
-            public void moved(URL url) {
-                DownloadInfo old = info;
-                info = new DownloadInfo(url);
-                info.setReferer(old.getReferer());
+				return contents.toString();
+			}
 
-                load.notifyMoved();
-            }
+			@Override
+			public void moved(URL url) {
+				DownloadInfo old = info;
+				info = new DownloadInfo(url);
+				info.setReferer(old.getReferer());
 
-        });
+				load.notifyMoved();
+			}
 
-        return html;
-    }
+		});
+
+		return html;
+	}
 }

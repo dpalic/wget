@@ -1,11 +1,18 @@
 package com.github.axet.wget.info;
 
+import java.io.File;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.FilenameUtils;
+import org.apache.commons.lang3.StringUtils;
+
 import com.thoughtworks.xstream.annotations.XStreamAlias;
+
+import lombok.Data;
 
 /**
  * DownloadInfo class. Keep part information. We need to serialize this class
@@ -14,266 +21,308 @@ import com.thoughtworks.xstream.annotations.XStreamAlias;
  * @author axet
  * 
  */
+@Data
 @XStreamAlias("DownloadInfo")
 public class DownloadInfo extends URLInfo {
 
-    public final static long PART_LENGTH = 10 * 1024 * 1024;
+	public final static long PART_LENGTH = 10 * 1024 * 1024;
 
-    @XStreamAlias("DownloadInfoPart")
-    public static class Part {
-        /**
-         * Notify States
-         */
-        public enum States {
-            QUEUED, DOWNLOADING, RETRYING, ERROR, STOP, DONE;
-        }
+	@Data
+	@XStreamAlias("DownloadInfoPart")
+	public static class Part {
+		/**
+		 * Notify States
+		 */
+		public enum States {
+			QUEUED, DOWNLOADING, RETRYING, ERROR, STOP, DONE;
+		}
 
-        /**
-         * start offset [start, end]
-         */
-        private long start;
-        /**
-         * end offset [start, end]
-         */
-        private long end;
-        /**
-         * part number
-         */
-        private long number;
-        /**
-         * number of bytes we are downloaded
-         */
-        private long count;
+		/**
+		 * start offset [start, end]
+		 */
+		private long start;
+		/**
+		 * end offset [start, end]
+		 */
+		private long end;
+		/**
+		 * part number
+		 */
+		private long number;
+		/**
+		 * number of bytes we are downloaded
+		 */
+		private long count;
 
-        /**
-         * download state
-         */
-        private States state;
-        /**
-         * downloading error / retry error
-         */
-        private Throwable exception;
-        /**
-         * retrying delay;
-         */
-        private int delay;
+		/**
+		 * download state
+		 */
+		private States state;
+		/**
+		 * downloading error / retry error
+		 */
+		private Throwable exception;
+		/**
+		 * retrying delay;
+		 */
+		private int delay;
 
-        synchronized public long getStart() {
-            return start;
-        }
+		synchronized public long getStart() {
+			return start;
+		}
 
-        synchronized public void setStart(long start) {
-            this.start = start;
-        }
+		synchronized public void setStart(long start) {
+			this.start = start;
+		}
 
-        synchronized public long getEnd() {
-            return end;
-        }
+		synchronized public long getEnd() {
+			return end;
+		}
 
-        synchronized public void setEnd(long end) {
-            this.end = end;
-        }
+		synchronized public void setEnd(long end) {
+			this.end = end;
+		}
 
-        synchronized public long getNumber() {
-            return number;
-        }
+		synchronized public long getNumber() {
+			return number;
+		}
 
-        synchronized public void setNumber(long number) {
-            this.number = number;
-        }
+		synchronized public void setNumber(long number) {
+			this.number = number;
+		}
 
-        synchronized public long getLength() {
-            return end - start + 1;
-        }
+		synchronized public long getLength() {
+			return end - start + 1;
+		}
 
-        synchronized public long getCount() {
-            return count;
-        }
+		synchronized public long getCount() {
+			return count;
+		}
 
-        synchronized public void setCount(long count) {
-            this.count = count;
-        }
+		synchronized public void setCount(long count) {
+			this.count = count;
+		}
 
-        synchronized public States getState() {
-            return state;
-        }
+		synchronized public States getState() {
+			return state;
+		}
 
-        synchronized public void setState(States state) {
-            this.state = state;
-            this.exception = null;
-        }
+		synchronized public void setState(States state) {
+			this.state = state;
+			this.exception = null;
+		}
 
-        synchronized public void setState(States state, Throwable e) {
-            this.state = state;
-            this.exception = e;
-        }
+		synchronized public void setState(States state, Throwable e) {
+			this.state = state;
+			this.exception = e;
+		}
 
-        synchronized public Throwable getException() {
-            return exception;
-        }
+		synchronized public Throwable getException() {
+			return exception;
+		}
 
-        synchronized public void setException(Throwable exception) {
-            this.exception = exception;
-        }
+		synchronized public void setException(Throwable exception) {
+			this.exception = exception;
+		}
 
-        synchronized public int getDelay() {
-            return delay;
-        }
+		synchronized public int getDelay() {
+			return delay;
+		}
 
-        synchronized public void setDelay(int delay, Throwable e) {
-            this.state = States.RETRYING;
-            this.delay = delay;
-            this.exception = e;
-        }
-    }
+		synchronized public void setDelay(int delay, Throwable e) {
+			this.state = States.RETRYING;
+			this.delay = delay;
+			this.exception = e;
+		}
+	}
 
-    /**
-     * part we are going to download.
-     */
-    private List<Part> parts;
+	/**
+	 * part we are going to download.
+	 */
+	private List<Part> parts;
 
-    /**
-     * total bytes downloaded. for chunk download progress info. for one thread
-     * count - also local file size;
-     */
-    private long count;
+	/**
+	 * total bytes downloaded. for chunk download progress info. for one thread
+	 * count - also local file size;
+	 */
+	private long count;
 
-    public DownloadInfo(URL source) {
-        super(source);
-    }
+	private File targetFolder = new File(System.getProperty("user.home"));
 
-    public DownloadInfo(URL source, ProxyInfo p) {
-        super(source);
+	private File targetFile;
 
-        setProxy(p);
-    }
+	public DownloadInfo(URL pSource, String pTargetFolderPath) {
+		super(pSource);
 
-    /**
-     * is it a multipart download?
-     * 
-     * @return
-     */
-    synchronized public boolean multipart() {
-        if (!getRange())
-            return false;
+		targetFolder = new File(pTargetFolderPath);
 
-        return parts != null;
-    }
+		//TODO: move this block into URLInfo class, since the values are exported from URL in URLInfo
+		String filename = null;
+		if (StringUtils.isNotBlank(getContentFilename())) {
+			// okay we have a filename via "content-disposition" header
+			filename = getContentFilename();
+		} else {
+			// fallback
+			filename = pSource.getFile();
+			filename = FilenameUtils.getName(filename);
+		}
+		generateTargetFile(filename);
+	}
 
-    synchronized public void reset() {
-        setCount(0);
+	public DownloadInfo(URL source, String pTargetFolderPath, String pTargetFileName) {
+		super(source);
+		targetFolder = new File(pTargetFolderPath);
+		generateTargetFile(pTargetFileName);
+	}
 
-        if (parts != null) {
-            for (Part p : parts) {
-                p.setCount(0);
-                p.setState(DownloadInfo.Part.States.QUEUED);
-            }
-        }
-    }
+	public DownloadInfo(URL source) {
+		super(source);
+	}
 
-    /**
-     * for multi part download, call every time when we need to know totol
-     * download progress
-     */
-    synchronized public void calculate() {
-        setCount(0);
+	public DownloadInfo(URL source, ProxyInfo p) {
+		super(source);
 
-        for (Part p : getParts())
-            setCount(getCount() + p.getCount());
-    }
+		setProxy(p);
+	}
 
-    synchronized public List<Part> getParts() {
-        return parts;
-    }
+	/**
+	 * Generate the target file for the download.
+	 * 
+	 * @param pFilename
+	 *            the filename of the target file
+	 */
+	private void generateTargetFile(String pFilename) {
+		pFilename = targetFolder.getAbsolutePath() + File.separator + pFilename;
 
-    synchronized public void enableMultipart() {
-        if (empty())
-            throw new RuntimeException("Empty Download info, cant set multipart");
+		targetFile = new File(pFilename);
+	}
 
-        if (!getRange())
-            throw new RuntimeException("Server does not support RANGE, cant set multipart");
+	/**
+	 * is it a multipart download?
+	 * 
+	 * @return
+	 */
+	synchronized public boolean multipart() {
+		if (!getRange())
+			return false;
 
-        long count = getLength() / PART_LENGTH + 1;
+		return parts != null;
+	}
 
-        if (count > 2) {
-            parts = new ArrayList<Part>();
+	synchronized public void reset() {
+		setCount(0);
 
-            long start = 0;
-            for (int i = 0; i < count; i++) {
-                Part part = new Part();
-                part.setNumber(i);
-                part.setStart(start);
-                part.setEnd(part.getStart() + PART_LENGTH - 1);
-                if (part.getEnd() > getLength() - 1)
-                    part.setEnd(getLength() - 1);
-                part.setState(DownloadInfo.Part.States.QUEUED);
-                parts.add(part);
+		if (parts != null) {
+			for (Part p : parts) {
+				p.setCount(0);
+				p.setState(DownloadInfo.Part.States.QUEUED);
+			}
+		}
+	}
 
-                start += PART_LENGTH;
-            }
-        }
-    }
+	/**
+	 * for multi part download, call every time when we need to know totol
+	 * download progress
+	 */
+	synchronized public void calculate() {
+		setCount(0);
 
-    /**
-     * Check if we can continue download a file from new source. Check if new
-     * souce has the same file length, title. and supports for range
-     * 
-     * @param newSource
-     *            new source
-     * @return true - possible to resume from new location
-     */
-    synchronized public boolean resume(DownloadInfo newSource) {
-        if (!newSource.getRange())
-            return false;
+		for (Part p : getParts())
+			setCount(getCount() + p.getCount());
+	}
 
-        if (newSource.getContentFilename() != null && this.getContentFilename() != null) {
-            if (!newSource.getContentFilename().equals(this.getContentFilename()))
-                // one source has different name
-                return false;
-        } else if (newSource.getContentFilename() != null || this.getContentFilename() != null) {
-            // one source has a have old is not
-            return false;
-        }
+	synchronized public List<Part> getParts() {
+		return parts;
+	}
 
-        if (newSource.getLength() != null && this.getLength() != null) {
-            if (!newSource.getLength().equals(this.getLength()))
-                // one source has different length
-                return false;
-        } else if (newSource.getLength() != null || this.getLength() != null) {
-            // one source has length, other is not
-            return false;
-        }
+	synchronized public void enableMultipart() {
+		if (empty())
+			throw new RuntimeException("Empty Download info, cant set multipart");
 
-        if (newSource.getContentType() != null && this.getContentType() != null) {
-            if (!newSource.getContentType().equals(this.getContentType()))
-                // one source has different getContentType
-                return false;
-        } else if (newSource.getContentType() != null || this.getContentType() != null) {
-            // one source has a have old is not
-            return false;
-        }
+		if (!getRange())
+			throw new RuntimeException("Server does not support RANGE, cant set multipart");
 
-        return true;
-    }
+		long count = getLength() / PART_LENGTH + 1;
 
-    /**
-     * copy resume data from oldSource;
-     */
-    synchronized public void copy(DownloadInfo oldSource) {
-        setCount(oldSource.getCount());
-        parts = oldSource.parts;
-    }
+		if (count > 2) {
+			parts = new ArrayList<Part>();
 
-    public long getCount() {
-        return count;
-    }
+			long start = 0;
+			for (int i = 0; i < count; i++) {
+				Part part = new Part();
+				part.setNumber(i);
+				part.setStart(start);
+				part.setEnd(part.getStart() + PART_LENGTH - 1);
+				if (part.getEnd() > getLength() - 1)
+					part.setEnd(getLength() - 1);
+				part.setState(DownloadInfo.Part.States.QUEUED);
+				parts.add(part);
 
-    public void setCount(long count) {
-        this.count = count;
-    }
+				start += PART_LENGTH;
+			}
+		}
+	}
 
-    @Override
-    public void extract(final AtomicBoolean stop, final Runnable notify) {
-        super.extract(stop, notify);
-    }
+	/**
+	 * Check if we can continue download a file from new source. Check if new
+	 * souce has the same file length, title. and supports for range
+	 * 
+	 * @param newSource
+	 *            new source
+	 * @return true - possible to resume from new location
+	 */
+	synchronized public boolean resume(DownloadInfo newSource) {
+		if (!newSource.getRange())
+			return false;
+
+		if (newSource.getContentFilename() != null && this.getContentFilename() != null) {
+			if (!newSource.getContentFilename().equals(this.getContentFilename()))
+				// one source has different name
+				return false;
+		} else if (newSource.getContentFilename() != null || this.getContentFilename() != null) {
+			// one source has a have old is not
+			return false;
+		}
+
+		if (newSource.getLength() != null && this.getLength() != null) {
+			if (!newSource.getLength().equals(this.getLength()))
+				// one source has different length
+				return false;
+		} else if (newSource.getLength() != null || this.getLength() != null) {
+			// one source has length, other is not
+			return false;
+		}
+
+		if (newSource.getContentType() != null && this.getContentType() != null) {
+			if (!newSource.getContentType().equals(this.getContentType()))
+				// one source has different getContentType
+				return false;
+		} else if (newSource.getContentType() != null || this.getContentType() != null) {
+			// one source has a have old is not
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
+	 * copy resume data from oldSource;
+	 */
+	synchronized public void copy(DownloadInfo oldSource) {
+		setCount(oldSource.getCount());
+		parts = oldSource.parts;
+	}
+
+	public long getCount() {
+		return count;
+	}
+
+	public void setCount(long count) {
+		this.count = count;
+	}
+
+	@Override
+	public void extract(final AtomicBoolean stop, final Runnable notify) {
+		super.extract(stop, notify);
+	}
 }

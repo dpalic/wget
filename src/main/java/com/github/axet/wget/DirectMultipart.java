@@ -32,11 +32,9 @@ public class DirectMultipart extends Direct {
      * 
      * @param info
      *            download file information
-     * @param target
-     *            target file
      */
-    public DirectMultipart(DownloadInfo info, File target) {
-        super(info, target);
+    public DirectMultipart(DownloadInfo info) {
+        super(info, info.getTargetFile());
     }
 
     /**
